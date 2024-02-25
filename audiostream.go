@@ -88,25 +88,8 @@ func (s *audioStream) handleRxSeqBufEntry(e seqBufEntry) {
 	audio.play <- e.data
 }
 
-// var drop int
-
 func (s *audioStream) handleAudioPacket(r []byte) error {
 	gotSeq := binary.LittleEndian.Uint16(r[6:8])
-
-	// if drop == 0 && time.Now().UnixNano()%10 == 0 {
-	// 	log.Print("drop start - ", gotSeq)
-	// 	drop = 1
-	// 	return nil
-	// } else if drop > 0 {
-	// 	drop++
-	// 	if drop >= int(time.Now().UnixNano()%10) {
-	// 		log.Print("drop stop - ", gotSeq)
-	// 		drop = 0
-	// 	} else {
-	// 		return nil
-	// 	}
-	// }
-
 	if s.timeoutTimer != nil {
 		s.timeoutTimer.Stop()
 		s.timeoutTimer.Reset(audioTimeoutDuration)

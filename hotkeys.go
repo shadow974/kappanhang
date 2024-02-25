@@ -4,12 +4,15 @@ import "fmt"
 
 func handleHotkey(k byte) {
 	switch k {
+	case 'c':
+		// provide a way to clear the screen since sometimes the stack of errors gets to be rather distracting
+		fmt.Printf("%v", termDetail.eraseScreen)
 	case 'l':
 		audio.togglePlaybackToDefaultSoundcard()
 	case ' ':
 		audio.toggleRecFromDefaultSoundcard()
 	case 't':
-		if err := civControl.toggleTune(); err != nil {
+		if err := civControl.toggleAntennaTuner(); err != nil {
 			log.Error("can't toggle tune: ", err)
 		}
 	case '+':
@@ -137,11 +140,11 @@ func handleHotkey(k byte) {
 			log.Error("can't decrease freq: ", err)
 		}
 	case '}':
-		if err := civControl.incTS(); err != nil {
+		if err := civControl.incTuningStep(); err != nil {
 			log.Error("can't increase ts: ", err)
 		}
 	case '{':
-		if err := civControl.decTS(); err != nil {
+		if err := civControl.decTuningStep(); err != nil {
 			log.Error("can't decrease ts: ", err)
 		}
 	case 'm':
@@ -191,7 +194,7 @@ func handleHotkey(k byte) {
 	case '\n':
 		if statusLog.isRealtime() {
 			statusLog.mutex.Lock()
-			statusLog.clearInternal()
+			statusLog.clearStatusLine()
 			fmt.Println()
 			statusLog.mutex.Unlock()
 			statusLog.print()

@@ -30,6 +30,7 @@ type serialStream struct {
 	deinitFinishedChan chan bool
 }
 
+// load the data into a full packet and send it
 func (s *serialStream) send(d []byte) error {
 	l := byte(len(d))
 	p := append([]byte{0x15 + l, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -91,6 +92,9 @@ func (s *serialStream) handleRxSeqBufEntry(e seqBufEntry) {
 	}
 
 	e.data = e.data[21:]
+
+	// decode the received CI-V data packet
+	// if it fails return directly to the main polling loop, without sending it on to the serial &/or network channels
 
 	if !civControl.decode(e.data) {
 		return

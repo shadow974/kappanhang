@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/fatih/color"
 	"github.com/mattn/go-isatty"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 type statusLogData struct {
@@ -76,7 +78,34 @@ type statusLogStruct struct {
 	data *statusLogData
 }
 
+type termAspects struct {
+	cols        int
+	rows        int
+	cursorLeft  string
+	cursorRight string
+	cursorUp    string
+	cursorDown  string
+	eraseLine   string
+	eraseScreen string
+}
+
 var statusLog statusLogStruct
+var termDetail = termAspects{
+	cols:        0,
+	rows:        0,
+	cursorUp:    fmt.Sprintf("%c[1A", 0x1b),
+	cursorDown:  fmt.Sprintf("%c[1B", 0x1b),
+	cursorRight: fmt.Sprintf("%c[1C", 0x1b),
+	cursorLeft:  fmt.Sprintf("%c[1D", 0x1b),
+	eraseLine:   fmt.Sprintf("%c[2K", 0x1b),
+	eraseScreen: fmt.Sprintf("%c[2J", 0x1b),
+}
+
+var upArrow = "\u21d1"
+var downArrow = "\u21d3"
+
+// var roundTripArrow = "\u2b6f\u200a" // widdershin circle w/arrow
+var roundTripArrow = "\u2b8c\u200a" // out and back arrow
 
 func (s *statusLogStruct) reportRTTLatency(l time.Duration) {
 	s.mutex.Lock()
@@ -242,14 +271,14 @@ func (s *statusLogStruct) reportSWR(swr float64) {
 	s.data.swr = fmt.Sprintf("%.1f", swr)
 }
 
-func (s *statusLogStruct) reportTS(ts uint) {
+func (s *statusLogStruct) reportTuningStep(ts uint) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	if s.data == nil {
 		return
 	}
-	s.data.ts = "TS"
+	s.data.ts = "TS: "
 	if ts >= 1000 {
 		if ts%1000 == 0 {
 			s.data.ts += fmt.Sprintf("%.0fk", float64(ts)/1000)
@@ -329,8 +358,8 @@ func (s *statusLogStruct) reportSplit(mode splitMode, split string) {
 	}
 }
 
-func (s *statusLogStruct) clearInternal() {
-	fmt.Printf("%c[2K", 27)
+func (s *statusLogStruct) clearStatusLine() {
+	fmt.Print(termDetail.eraseLine)
 }
 
 func (s *statusLogStruct) print() {
@@ -338,12 +367,12 @@ func (s *statusLogStruct) print() {
 	defer s.mutex.Unlock()
 
 	if s.isRealtimeInternal() {
-		s.clearInternal()
+		s.clearStatusLine()
 		fmt.Println(s.data.line1)
-		s.clearInternal()
+		s.clearStatusLine()
 		fmt.Println(s.data.line2)
-		s.clearInternal()
-		fmt.Printf(s.data.line3+"%c[1A%c[1A", 27, 27)
+		s.clearStatusLine()
+		fmt.Printf(s.data.line3+"%v%v", termDetail.cursorUp, termDetail.cursorUp)
 	} else {
 		log.PrintStatusLog(s.data.line3)
 	}
@@ -353,9 +382,8 @@ func (s *statusLogStruct) padLeft(str string, length int) string {
 	if !s.isRealtimeInternal() {
 		return str
 	}
-
-	for len(str) < length {
-		str = " " + str
+	if length-len(str) > 0 {
+		str = strings.Repeat(" ", length-len(str)) + str
 	}
 	return str
 }
@@ -364,9 +392,8 @@ func (s *statusLogStruct) padRight(str string, length int) string {
 	if !s.isRealtimeInternal() {
 		return str
 	}
-
-	for len(str) < length {
-		str += " "
+	if length-len(str) > 0 {
+		str += strings.Repeat(" ", length-len(str))
 	}
 	return str
 }
@@ -375,19 +402,34 @@ func (s *statusLogStruct) update() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	var filterStr string
+	var (
+		filterStr  string
+		preampStr  string
+		agcStr     string
+		nrStr      string
+		rfGainStr  string
+		sqlStr     string
+		stateStr   string
+		tsStr      string
+		modeStr    string
+		vdStr      string
+		txPowerStr string
+		splitStr   string
+		swrStr     string
+	)
+
 	if s.data.filter != "" {
 		filterStr = " " + s.data.filter
 	}
-	var preampStr string
+
 	if s.data.preamp != "" {
 		preampStr = " " + s.data.preamp
 	}
-	var agcStr string
+
 	if s.data.agc != "" {
 		agcStr = " " + s.data.agc
 	}
-	var nrStr string
+
 	if s.data.nr != "" {
 		nrStr = " NR"
 		if s.data.nrEnabled {
@@ -396,17 +438,16 @@ func (s *statusLogStruct) update() {
 			nrStr += "-"
 		}
 	}
-	var rfGainStr string
+
 	if s.data.rfGain != "" {
 		rfGainStr = " rfg " + s.data.rfGain
 	}
-	var sqlStr string
+
 	if s.data.sql != "" {
 		sqlStr = " sql " + s.data.sql
 	}
 	s.data.line1 = fmt.Sprint(s.data.audioStateStr, filterStr, preampStr, agcStr, nrStr, rfGainStr, sqlStr)
 
-	var stateStr string
 	if s.data.tune {
 		stateStr = s.preGenerated.stateStr.tune
 	} else if s.data.ptt {
@@ -417,29 +458,29 @@ func (s *statusLogStruct) update() {
 			ovfStr = s.preGenerated.ovf
 		}
 		if len(s.data.s) <= 2 {
-			stateStr = s.preGenerated.rxColor.Sprint("  " + s.padRight(s.data.s, 4) + " ")
+			stateStr = s.preGenerated.rxColor.Sprintf("  %v ", s.padRight(s.data.s, 4))
 		} else {
-			stateStr = s.preGenerated.rxColor.Sprint(" " + s.padRight(s.data.s, 5) + " ")
+			stateStr = s.preGenerated.rxColor.Sprintf(" %v ", s.padRight(s.data.s, 5))
 		}
 		stateStr += ovfStr
 	}
-	var tsStr string
+
 	if s.data.ts != "" {
 		tsStr = " " + s.data.ts
 	}
-	var modeStr string
+
 	if s.data.mode != "" {
 		modeStr = " " + s.data.mode + s.data.dataMode
 	}
-	var vdStr string
+
 	if s.data.vd != "" {
 		vdStr = " " + s.data.vd
 	}
-	var txPowerStr string
+
 	if s.data.txPower != "" {
 		txPowerStr = " txpwr " + s.data.txPower
 	}
-	var splitStr string
+
 	if s.data.split != "" {
 		splitStr = " " + s.data.split
 		if s.data.splitMode == splitModeOn {
@@ -447,7 +488,7 @@ func (s *statusLogStruct) update() {
 				s.data.subMode, s.data.subDataMode, s.data.subFilter)
 		}
 	}
-	var swrStr string
+
 	if (s.data.tune || s.data.ptt) && s.data.swr != "" {
 		swrStr = " SWR" + s.data.swr
 	}
@@ -464,13 +505,17 @@ func (s *statusLogStruct) update() {
 		retransmitsStr = s.preGenerated.retransmitsColor.Sprint(" ", retransmits, " ")
 	}
 
-	s.data.line3 = fmt.Sprint("up ", s.padLeft(fmt.Sprint(time.Since(s.data.startTime).Round(time.Second)), 6),
-		" rtt ", s.padLeft(s.data.rttStr, 3), "ms up ",
-		s.padLeft(netstat.formatByteCount(up), 8), "/s down ",
-		s.padLeft(netstat.formatByteCount(down), 8), "/s retx ", retransmitsStr, "/1m lost ", lostStr, "/1m\r")
+	s.data.line3 = fmt.Sprint(
+		" [", s.padLeft(netstat.formatByteCount(up), 8), "/s "+upArrow+"] ",
+		" [", s.padLeft(netstat.formatByteCount(down), 8), "/s "+downArrow+"] ",
+		" [", s.padLeft(s.data.rttStr, 3), "ms "+roundTripArrow+"] ",
+		" re-Tx ", retransmitsStr, "/1m lost ", lostStr, "/1m",
+		"  - uptime: ", s.padLeft(fmt.Sprint(time.Since(s.data.startTime).Round(time.Second)), 6),
+		"\r")
 
 	if s.isRealtimeInternal() {
-		t := time.Now().Format("2006-01-02T15:04:05.000Z0700")
+		//t := time.Now().Format("2006-01-02T15:04:05.000Z0700") // this is visually busy with no real benefit
+		t := time.Now().Format("2006-01-02T15:04:05 Z0700")
 		s.data.line1 = fmt.Sprint(t, " ", s.data.line1)
 		s.data.line2 = fmt.Sprint(t, " ", s.data.line2)
 		s.data.line3 = fmt.Sprint(t, " ", s.data.line3)
@@ -497,14 +542,12 @@ func (s *statusLogStruct) isRealtimeInternal() bool {
 func (s *statusLogStruct) isRealtime() bool {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
 	return s.ticker != nil && s.isRealtimeInternal()
 }
 
 func (s *statusLogStruct) isActive() bool {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
 	return s.ticker != nil
 }
 
@@ -527,6 +570,7 @@ func (s *statusLogStruct) startPeriodicPrint() {
 	go s.loop()
 }
 
+// stop the update timer and clear the status rows... but not any error/info that may have been printed
 func (s *statusLogStruct) stopPeriodicPrint() {
 	if !s.isActive() {
 		return
@@ -538,12 +582,11 @@ func (s *statusLogStruct) stopPeriodicPrint() {
 	<-s.stopFinishedChan
 
 	if s.isRealtimeInternal() {
-		s.clearInternal()
-		fmt.Println()
-		s.clearInternal()
-		fmt.Println()
-		s.clearInternal()
-		fmt.Println()
+		statusRows := 3 // AD8IM NOTE: I intend to adjust this in the future to be dynamic, eg more rows when terminal is narrow
+		for i := 0; i < statusRows; i++ {
+			s.clearStatusLine()
+			fmt.Println()
+		}
 	}
 }
 
@@ -557,6 +600,17 @@ func (s *statusLogStruct) initIfNeeded() {
 	} else {
 		keyboard.init()
 	}
+
+	cols, rows, err := terminal.GetSize(int(os.Stdout.Fd()))
+	if err == nil {
+		termDetail.cols = cols
+		termDetail.rows = rows
+	}
+
+	// consider doing this with a nice looking start up screen too
+	//  what'd be kinda useful would be a nice map of the hotkeys
+	vertWhitespace := strings.Repeat(termDetail.cursorDown, rows-10)
+	fmt.Printf("%v%v", termDetail.eraseScreen, vertWhitespace)
 
 	c := color.New(color.FgHiWhite)
 	c.Add(color.BgWhite)

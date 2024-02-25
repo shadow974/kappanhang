@@ -4,7 +4,7 @@ import "time"
 
 // This value is sent to the transceiver and - according to my observations - it will use
 // this as it's RX buf length. Note that if it is set to larger than 500-600ms then audio TX
-// won't work (small radio memory?)
+// won't work (small radio memory?) - HA2NON
 const txSeqBufLength = 300 * time.Millisecond
 
 type txSeqBufEntry struct {
@@ -27,8 +27,15 @@ func (s *txSeqBufStruct) add(seq seqNum, p []byte) {
 }
 
 func (s *txSeqBufStruct) purgeOldEntries() {
+	// previous comment:
 	// We keep much more entries than the specified length of the TX seqbuf, so we can serve
 	// any requests coming from the server.
+	//
+	//  NOTE: need to wade deeper through the entire code base and see if the following is a more useful comment, or we need a better "why" here:
+	//
+	// Prune the oldest item in the txSeqBuf if it's older than ten time the txSeqBuf length... so "about 1 second"
+	//  this enables serving any requests from the server, even if older than the max... up to a point
+
 	for len(s.entries) > 0 && time.Since(s.entries[0].addedAt) > txSeqBufLength*10 {
 		s.entries = s.entries[1:]
 	}
