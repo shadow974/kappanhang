@@ -9,17 +9,15 @@ import (
 
 const statusPollInterval = time.Second
 const commandRetryTimeout = 500 * time.Millisecond
-const pttTimeout = 30 * time.Minute
+const pttTimeout = 10 * time.Minute // NOTE: US operators must identify at least once every ten minutes
 
-// const tuneTimeout = 30 * time.Second
-const tuneTimeout = 3 * time.Second
+const tuneTimeout = 30 * time.Second
 const ON = 1
 const OFF = 0
 const OK = 0xfb
 const NG = 0xfa
 
 // Commands reference: https://www.icomeurope.com/wp-content/uploads/2020/08/IC-705_ENG_CI-V_1_20200721.pdf
-
 type civOperatingMode struct {
 	name string
 	code byte
@@ -65,31 +63,35 @@ type civBand struct {
 //				even better would be to have a flag/config that will adjust them based on users license class
 //				(IE help them avoid accidental Tx where not allowed)
 var civBands = []civBand{
-	//{freqFrom:   1800000, freqTo:  1999999},     // 1.9
-	{freqFrom: 1800000, freqTo: 2000000}, // 1.9 - 160m
-	//{freqFrom:   3400000, freqTo:  4099999},     // 3.5 - 75/80m
-	{freqFrom: 3500000, freqTo: 4000000}, // 3.5 - 75/80m
-	//{freqFrom:   6900000, freqTo:   7499999},     // 7 - 40m
-	{freqFrom: 7000000, freqTo: 7300000}, // 7 - 40m
-	//{freqFrom:   9900000, freqTo:  10499999},    // 10
-	{freqFrom: 10100000, freqTo: 10150000}, // 10 - 30m data modes only in US
-	//{freqFrom:  13900000, freqTo:  14499999},   // 14
-	{freqFrom: 14000000, freqTo: 14350000}, // 14 - 20m
-	//{freqFrom:  17900000, freqTo:  18499999},   // 18
-	{freqFrom: 18068000, freqTo: 18168000}, // 18 -17m
-	//{freqFrom:  20900000, freqTo:  21499999},   // 21
-	{freqFrom: 21000000, freqTo: 21450000}, // 21 - 15m
-	//{freqFrom:  24400000, freqTo:  25099999},   // 24
-	{freqFrom: 24890000, freqTo: 24990000}, // 24 - 12m
-	//{freqFrom:  28000000, freqTo:  29999999},   // 28
-	{freqFrom: 28000000, freqTo: 29700000}, // 28 - 10m
-	//{freqFrom:  50000000, freqTo:  54000000},   // 50
-	{freqFrom: 50000000, freqTo: 54000000}, // 50 - 6m
-	//{freqFrom:  74800000, freqTo: 107999999},  // WFM - no TX in US
-	//{freqFrom: 108000000, freqTo: 136999999}, // AIR = no TX in US
-	//{freqFrom: 144000000, freqTo: 148000000}, // 144
+	/*
+		{freqFrom:   1800000, freqTo:  1999999},     // 1.9
+		{freqFrom:   3400000, freqTo:  4099999},     // 3.5 - 75/80m
+		{freqFrom:   6900000, freqTo:   7499999},     // 7 - 40m
+		{freqFrom:   9900000, freqTo:  10499999},    // 10
+		{freqFrom:  13900000, freqTo:  14499999},   // 14
+		{freqFrom:  17900000, freqTo:  18499999},   // 18
+		{freqFrom:  20900000, freqTo:  21499999},   // 21
+		{freqFrom:  24400000, freqTo:  25099999},   // 24
+		{freqFrom:  28000000, freqTo:  29999999},   // 28
+		{freqFrom:  50000000, freqTo:  54000000},   // 50
+		{freqFrom:  74800000, freqTo: 107999999},  // WFM - no TX in US
+		{freqFrom: 108000000, freqTo: 136999999}, // AIR = no TX in US
+		{freqFrom: 144000000, freqTo: 148000000}, // 144
+		{freqFrom: 420000000, freqTo: 450000000}, // 430
+		{freqFrom: 0, freqTo: 0},                 // GENE - general is ok for rx, but tx has statuatory limitations
+	*/
+
+	{freqFrom: 1800000, freqTo: 2000000},     // 1.9 - 160m
+	{freqFrom: 3500000, freqTo: 4000000},     // 3.5 - 75/80m
+	{freqFrom: 7000000, freqTo: 7300000},     // 7 - 40m
+	{freqFrom: 10100000, freqTo: 10150000},   // 10 - 30m data modes only in US
+	{freqFrom: 14000000, freqTo: 14350000},   // 14 - 20m
+	{freqFrom: 18068000, freqTo: 18168000},   // 18 -17m
+	{freqFrom: 21000000, freqTo: 21450000},   // 21 - 15m
+	{freqFrom: 24890000, freqTo: 24990000},   // 24 - 12m
+	{freqFrom: 28000000, freqTo: 29700000},   // 28 - 10m
+	{freqFrom: 50000000, freqTo: 54000000},   // 50 - 6m
 	{freqFrom: 144000000, freqTo: 148000000}, // 144 - 2m
-	//{freqFrom: 420000000, freqTo: 450000000}, // 430
 	{freqFrom: 420000000, freqTo: 450000000}, // 430 - 70cm
 	//{freqFrom: 0, freqTo: 0},                 // GENE // not very useful here
 	// NOTE: IC-705 doesn't support 33cm or higher, but it's twin the IC-905 does so we may think about that going forward
