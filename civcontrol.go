@@ -175,10 +175,10 @@ type civControlStruct struct {
 		subFreq             uint
 		ptt                 bool
 		tune                bool
-		pwrPercent          int
-		rfGainPercent       int
-		sqlPercent          int
-		nrPercent           int
+		pwrLevel            int
+		rfGainLevel         int
+		sqlLevel            int
+		nrLevel             int
 		nrEnabled           bool
 		operatingModeIdx    int
 		dataMode            bool
@@ -595,7 +595,7 @@ func (s *civControlStruct) decodeDataModeAndOVF(d []byte) bool {
 func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 	// all of these returns are expected to be three bytes long
 	//   subcmd, data msb, data lsb  (where data is encoded as BCD)
-	// code wouldbe easier to read if we check size and do value extraction first
+	// code would be easier to read if we check size and do value extraction first
 	//   then take actions on appropriate entities in each case
 	//
 
@@ -604,8 +604,8 @@ func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 		    if len(d) < 3 {  // has at least three bytes of data
 				return !s.state.getRFGain.pending && !s.state.setRFGain.pending
 			}
-			s.state.rfGainPercent = returnedLevel
-			statusLog.reportRFGain(s.state.rfGainPercent)
+			s.state.rfGainLevel = returnedLevel
+			statusLog.reportRFGain(s.state.rfGainLevel)
 			if s.state.getRFGain.pending {
 				s.removePendingCmd(&s.state.getRFGain)
 				return false
@@ -622,8 +622,8 @@ func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 		if len(data) < 2 {
 			return !s.state.getRFGain.pending && !s.state.setRFGain.pending
 		}
-		s.state.rfGainPercent = BCDAsPct(data)
-		statusLog.reportRFGain(s.state.rfGainPercent)
+		s.state.rfGainLevel = BCDToDec(data)
+		statusLog.reportRFGain(s.state.rfGainLevel)
 		if s.state.getRFGain.pending {
 			s.removePendingCmd(&s.state.getRFGain)
 			return false
@@ -636,8 +636,8 @@ func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 		if len(data) < 2 {
 			return !s.state.getSQL.pending && !s.state.setSQL.pending
 		}
-		s.state.sqlPercent = BCDAsPct(data)
-		statusLog.reportSQL(s.state.sqlPercent)
+		s.state.sqlLevel = BCDToDec(data)
+		statusLog.reportSQL(s.state.sqlLevel)
 		if s.state.getSQL.pending {
 			s.removePendingCmd(&s.state.getSQL)
 			return false
@@ -649,8 +649,8 @@ func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 		if len(data) < 2 {
 			return !s.state.getNR.pending && !s.state.setNR.pending
 		}
-		s.state.nrPercent = BCDAsPct(data)
-		statusLog.reportNR(s.state.nrPercent)
+		s.state.nrLevel = BCDToDec(data)
+		statusLog.reportNR(s.state.nrLevel)
 		if s.state.getNR.pending {
 			s.removePendingCmd(&s.state.getNR)
 			return false
@@ -663,8 +663,8 @@ func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 		if len(data) < 2 {
 			return !s.state.getPwr.pending && !s.state.setPwr.pending
 		}
-		s.state.pwrPercent = BCDAsPct(data)
-		statusLog.reportTxPower(s.state.pwrPercent)
+		s.state.pwrLevel = BCDToDec(data)
+		statusLog.reportTxPower(s.state.pwrLevel)
 		if s.state.getPwr.pending {
 			s.removePendingCmd(&s.state.getPwr)
 			return false
@@ -800,7 +800,7 @@ func (s *civControlStruct) decodeVdSWRS(d []byte) bool {
 			return !s.state.getSWR.pending
 		}
 		s.state.lastSWRReceivedAt = time.Now()
-		statusLog.reportSWR(float64(BCDToSWR(data)))
+		statusLog.reportSWR(BCDToSWR(data))
 		if s.state.getSWR.pending {
 			s.removePendingCmd(&s.state.getSWR)
 			return false
@@ -809,7 +809,7 @@ func (s *civControlStruct) decodeVdSWRS(d []byte) bool {
 		if len(d) < 3 {
 			return !s.state.getVd.pending
 		}
-		statusLog.reportVd(float64(BCDToVd(data)))
+		statusLog.reportVd(BCDToVd(data))
 		if s.state.getVd.pending {
 			s.removePendingCmd(&s.state.getVd)
 			return false
@@ -1025,7 +1025,7 @@ func (s *civControlStruct) sendCmd(cmd *civCmd) error {
 		}
 	}
 
-	// noww actually send it to the serial stream
+	// now actually send it to the serial stream
 	return s.st.send(cmd.cmd)
 }
 
@@ -1034,47 +1034,84 @@ func prepPacket(command string, data []byte) (pkt []byte) {
 	pkt = append(pkt, CIV[command].cmdSeq...)
 	pkt = append(pkt, data...)
 	pkt = append(pkt, []byte{0xfd}...)
-
 	if debugPackets {
 		debugPacket(command, pkt)
 	}
-
 	return
 }
 
+// encode to BCD using double dabble algorithm
+func encodeForSend(decimal int) (bcd []byte) {
+
+	v := uint32(decimal)
+	v <<= 3
+	for shifts := 3; shifts < 8; shifts++ {
+		// when ONEs or TENs places are 5 or more, add 3 to that place prior to the shift left
+		if v&0x00f00 > 0x00400 {
+			v += 0x00300
+		}
+		// is TENs place >= 5, if so add 3 to it and shift left one bit
+		if v&0x0f000 > 0x04000 {
+			v += 0x03000
+		}
+		v <<= 1
+	}
+
+	hundreds := (v & 0xf0000) >> 16
+	tens := (v & 0x0f000) >> 12
+	ones := (v & 0x00f00) >> 8
+	lo := ((tens << 3) + (tens << 1)) + ones
+	bcd = append(bcd, byte(hundreds))
+	bcd = append(bcd, byte(lo))
+	return
+}
+
+func BCDToDec(bcd []byte) int {
+	return int(bcd[0]*100 + bcd[1])
+}
+
+/*
 func pctAsBCD(pct int) (BCD []byte) {
-	v := uint16(0x0255 * (float64(pct) / 100))
-	return []byte{byte(v >> 8), byte(v & 0xff)}
+    scaled := uint16(255 * (float64(pct) / 100))
+    return encodeForSend(scaled)
 }
 
 func BCDAsPct(bcd []byte) (pct int) {
-	hex := uint16(bcd[0])<<8 | uint16(bcd[1])
-	pct = int(math.Round((float64(hex) / 0x0255) * 100))
+	pct = int(100 * float64(BCDToDec(bcd)) / 0xff)
 	return
 }
+*/
 
 func BCDToSLevel(bcd []byte) (sLevel int) {
-	sLevel = (int(math.Round(((float64(int(bcd[0])<<8) + float64(bcd[1])) / 0x0241) * 18)))
+	// BCD to S-level
+	//  0000 => S0
+	//  0120 => S9
+	//  0241 => S9 + 60dB
+	//  we want 17  S-levels, 10 for S0-9, plus 7 for each +10dB, number them 1 - 18
+	fullScale := float64(241) // FWIW, 241 = b11110001
+	sLevel = int(float64(BCDToDec(bcd))/fullScale) * 18
 	return
 }
 
-func BCDToSWR(bcd []byte) (SWR int) {
-	// BCD to SWR
+func BCDToSWR(bcd []byte) (SWR float64) {
+	// BCD to SWR - note that this isn't linear
 	//	0000 => 1.0
 	//	0048 => 1.5
 	//  0080 => 2.0
 	//  0120 => 3.0
-	SWR = 1 + (BCDAsPct(bcd)/0x0120)*2
+	fullScale := float64(120) // FWIW, 120 = b01111000
+	SWR = 1 + (float64(BCDToDec(bcd))/fullScale)*2
 	return
 }
 
-func BCDToVd(bcd []byte) (Vd int) {
+func BCDToVd(bcd []byte) (Vd float64) {
 	// BCD to Vd
 	//  0000 => 0v
 	//  0075 => 5v
 	//  0241 => 16v
-	//  IE - normalize full swing over 0x241, where full swing is 16 volts
-	Vd = (BCDAsPct(bcd) / 0x241) * 16
+	//  IE - normalize full swing over 0-241, where full swing is 16 volts
+	fullScale := float64(241) // FWIW, 241 = b11110001
+	Vd = (float64(BCDToDec(bcd)) / fullScale) * 16
 	return
 }
 
@@ -1088,7 +1125,6 @@ func (s *civControlStruct) getDigit(v uint, decade int) byte {
 	return byte(uint(asDecimal) % 10)
 }
 
-// NOTE:  mabye call this BCDtoDecimal? (esp. since the incoming BCD size isn't limited)
 func (s *civControlStruct) decodeFreqData(d []byte) (f uint) {
 	var pos int
 	for _, v := range d {
@@ -1102,83 +1138,83 @@ func (s *civControlStruct) decodeFreqData(d []byte) (f uint) {
 	return
 }
 
-func (s *civControlStruct) setPwr(percent int) error {
-	s.initCmd(&s.state.setPwr, "setPwr", prepPacket("setPwr", pctAsBCD(percent)))
+func (s *civControlStruct) setPwr(level int) error {
+	s.initCmd(&s.state.setPwr, "setPwr", prepPacket("setPwr", encodeForSend(level)))
 	return s.sendCmd(&s.state.setPwr)
 }
 
 func (s *civControlStruct) incPwr() error {
-	if s.state.pwrPercent < 100 {
-		return s.setPwr(s.state.pwrPercent + 1)
+	if s.state.pwrLevel < 255 {
+		return s.setPwr(s.state.pwrLevel + 1)
 	}
 	return nil
 }
 
 func (s *civControlStruct) decPwr() error {
-	if s.state.pwrPercent > 0 {
-		return s.setPwr(s.state.pwrPercent - 1)
+	if s.state.pwrLevel > 0 {
+		return s.setPwr(s.state.pwrLevel - 1)
 	}
 	return nil
 }
 
-func (s *civControlStruct) setRFGain(percent int) error {
-	s.initCmd(&s.state.setRFGain, "setRFGain", prepPacket("setRFGain", pctAsBCD(percent)))
+func (s *civControlStruct) setRFGain(level int) error {
+	s.initCmd(&s.state.setRFGain, "setRFGain", prepPacket("setRFGain", encodeForSend(level)))
 	return s.sendCmd(&s.state.setRFGain)
 }
 
 func (s *civControlStruct) incRFGain() error {
-	if s.state.rfGainPercent < 100 {
-		return s.setRFGain(s.state.rfGainPercent + 1)
+	if s.state.rfGainLevel < 255 {
+		return s.setRFGain(s.state.rfGainLevel + 1)
 	}
 	return nil
 }
 
 func (s *civControlStruct) decRFGain() error {
-	if s.state.rfGainPercent > 0 {
-		return s.setRFGain(s.state.rfGainPercent - 1)
+	if s.state.rfGainLevel > 0 {
+		return s.setRFGain(s.state.rfGainLevel - 1)
 	}
 	return nil
 }
 
-func (s *civControlStruct) setSQL(percent int) error {
-	s.initCmd(&s.state.setSQL, "setSQL", prepPacket("setSQL", pctAsBCD(percent)))
+func (s *civControlStruct) setSQL(level int) error {
+	s.initCmd(&s.state.setSQL, "setSQL", prepPacket("setSQL", encodeForSend(level)))
 	return s.sendCmd(&s.state.setSQL)
 }
 
 func (s *civControlStruct) incSQL() error {
-	if s.state.sqlPercent < 100 {
-		return s.setSQL(s.state.sqlPercent + 1)
+	if s.state.sqlLevel < 255 {
+		return s.setSQL(s.state.sqlLevel + 1)
 	}
 	return nil
 }
 
 func (s *civControlStruct) decSQL() error {
-	if s.state.sqlPercent > 0 {
-		return s.setSQL(s.state.sqlPercent - 1)
+	if s.state.sqlLevel > 0 {
+		return s.setSQL(s.state.sqlLevel - 1)
 	}
 	return nil
 }
 
-func (s *civControlStruct) setNR(percent int) error {
+func (s *civControlStruct) setNR(level int) error {
 	if !s.state.nrEnabled {
 		if err := s.toggleNR(); err != nil {
 			return err
 		}
 	}
-	s.initCmd(&s.state.setNR, "setNR", prepPacket("setSNR", pctAsBCD(percent)))
+	s.initCmd(&s.state.setNR, "setNR", prepPacket("setSNR", encodeForSend(level)))
 	return s.sendCmd(&s.state.setNR)
 }
 
 func (s *civControlStruct) incNR() error {
-	if s.state.nrPercent < 100 {
-		return s.setNR(s.state.nrPercent + 1)
+	if s.state.nrLevel < 255 {
+		return s.setNR(s.state.nrLevel + 1)
 	}
 	return nil
 }
 
 func (s *civControlStruct) decNR() error {
-	if s.state.nrPercent > 0 {
-		return s.setNR(s.state.nrPercent - 1)
+	if s.state.nrLevel > 0 {
+		return s.setNR(s.state.nrLevel - 1)
 	}
 	return nil
 }
@@ -1693,7 +1729,7 @@ func debugPacket(command string, pkt []byte) {
 	cmd := pkt[4]
 	pld := pkt[5 : len(pkt)-1]
 
-	msg := fmt.Sprintf("'%v' [%x]  ", command, pkt)
+	msg := fmt.Sprintf("'%v' [% x]  ", command, pkt)
 	msg += "to "
 
 	if to == civAddress {

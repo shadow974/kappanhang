@@ -201,5 +201,7 @@ func handleHotkey(k byte) {
 		}
 	case 'q':
 		quitChan <- true
+    default:
+        log.Error(fmt.Sprintf("INFO: no action mapped to key [%v]\n", string(k)))
 	}
 }
