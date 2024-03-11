@@ -29,7 +29,7 @@ func (l *logger) GetCallerFileName(withLine bool) string {
 func (l *logger) Print(a ...interface{}) {
 	if statusLog.isRealtime() {
 		statusLog.mutex.Lock()
-		statusLog.clearInternal()
+		statusLog.clearStatusLine()
 		defer func() {
 			statusLog.mutex.Unlock()
 			statusLog.print()
@@ -45,7 +45,7 @@ func (l *logger) PrintStatusLog(a ...interface{}) {
 func (l *logger) Debug(a ...interface{}) {
 	if statusLog.isRealtime() {
 		statusLog.mutex.Lock()
-		statusLog.clearInternal()
+		statusLog.clearStatusLine()
 		defer func() {
 			statusLog.mutex.Unlock()
 			statusLog.print()
@@ -57,7 +57,7 @@ func (l *logger) Debug(a ...interface{}) {
 func (l *logger) Error(a ...interface{}) {
 	if statusLog.isRealtime() {
 		statusLog.mutex.Lock()
-		statusLog.clearInternal()
+		statusLog.clearStatusLine()
 		defer func() {
 			statusLog.mutex.Unlock()
 			statusLog.print()
@@ -69,7 +69,7 @@ func (l *logger) Error(a ...interface{}) {
 func (l *logger) ErrorC(a ...interface{}) {
 	if statusLog.isRealtime() {
 		statusLog.mutex.Lock()
-		statusLog.clearInternal()
+		statusLog.clearStatusLine()
 		defer func() {
 			statusLog.mutex.Unlock()
 			statusLog.print()

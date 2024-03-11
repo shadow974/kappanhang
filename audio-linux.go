@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package main
@@ -392,6 +393,10 @@ func (a *audioStruct) loop() {
 
 // We only init the audio once, with the first device name we acquire, so apps using the virtual sound card
 // won't have issues with the interface going down while the app is running.
+//
+// ad8im note: but this seems like it leaves stale virtuals around indefinitely in some cases
+//
+//	so it may be desirable to enable force cleanup and recreate via flags
 func (a *audioStruct) initIfNeeded(devName string) error {
 	a.devName = devName
 	bufferSizeInBits := (audioSampleRate * audioSampleBytes * 8) / 1000 * pulseAudioBufferLength.Milliseconds()
@@ -446,7 +451,10 @@ func (a *audioStruct) initIfNeeded(devName string) error {
 	}
 
 	if a.virtualSoundcardStream.playBuf == nil {
-		log.Print("opened device " + a.virtualSoundcardStream.source.Name)
+		//origina line// log.Print("opened device '" + a.virtualSoundcardStream.source.Name + "'")
+		log.Print("opened virtual sound card device")
+		log.Print("  name - source:'" + a.virtualSoundcardStream.source.Name + "'  sink:'" + a.virtualSoundcardStream.sink.Name + "'")
+		log.Print("  location - source:'" + a.virtualSoundcardStream.source.Filename + "'  sink:'" + a.virtualSoundcardStream.sink.Filename + "'")
 
 		a.play = make(chan []byte)
 		a.rec = make(chan []byte)

@@ -24,7 +24,10 @@ func getAboutStr() string {
 	} else {
 		v = "(devel)"
 	}
-	return "kappanhang " + v + " by Norbert Varga HA2NON and Akos Marton ES1AKOS https://github.com/nonoo/kappanhang"
+	about_msg := "orignal kappanhang " + v + " by Norbert Varga HA2NON and Akos Marton ES1AKOS https://github.com/nonoo/kappanhang"
+	about_msg += "\n\tthis version produced by AD8IM and can be fuond at http://github.com/AD8IM/kappanhang"
+
+	return about_msg
 }
 
 func wait(d time.Duration, osSignal chan os.Signal) (shouldExit bool) {
@@ -54,7 +57,6 @@ func runControlStream(osSignal chan os.Signal) (requireWait, shouldExit bool, ex
 	}
 
 	ctrl := &controlStream{}
-
 	if err := ctrl.init(); err != nil {
 		log.Error(err)
 		ctrl.deinit()
@@ -65,8 +67,8 @@ func runControlStream(osSignal chan os.Signal) (requireWait, shouldExit bool, ex
 	}
 
 	select {
-	// Need to wait before reinit because the IC-705 will disconnect our audio stream eventually if we relogin
-	// in a too short interval without a deauth...
+	// Need to wait before reinit because the IC-705 will disconnect our audio stream eventually
+	//   if we relogin in a too short interval without a deauth...
 	case requireWait = <-gotErrChan:
 		ctrl.deinit()
 		return
