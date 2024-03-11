@@ -9,7 +9,7 @@ import (
 
 const statusPollInterval = time.Second
 const commandRetryTimeout = 500 * time.Millisecond
-const pttTimeout = 10 * time.Minute // NOTE: US operators must identify at least once every ten minutes
+const pttTimeout = 10 * time.Minute // NOTE: US operators MUST legally identify at least once every ten minutes, most Tx should be much shorter than this
 
 const tuneTimeout = 30 * time.Second
 const ON = 1
@@ -64,8 +64,8 @@ type civBand struct {
 //				(IE help them avoid accidental Tx where not allowed)
 var civBands = []civBand{
 	/*
-		{freqFrom:   1800000, freqTo:  1999999},     // 1.9
-		{freqFrom:   3400000, freqTo:  4099999},     // 3.5 - 75/80m
+		{freqFrom:   1800000, freqTo:   1999999},     // 1.9
+		{freqFrom:   3400000, freqTo:   4099999},     // 3.5 - 75/80m
 		{freqFrom:   6900000, freqTo:   7499999},     // 7 - 40m
 		{freqFrom:   9900000, freqTo:  10499999},    // 10
 		{freqFrom:  13900000, freqTo:  14499999},   // 14
@@ -93,7 +93,7 @@ var civBands = []civBand{
 	{freqFrom: 50000000, freqTo: 54000000},   // 50 - 6m
 	{freqFrom: 144000000, freqTo: 148000000}, // 144 - 2m
 	{freqFrom: 420000000, freqTo: 450000000}, // 430 - 70cm
-	//{freqFrom: 0, freqTo: 0},                 // GENE // not very useful here
+	//{freqFrom: 0, freqTo: 0},                 // GENE // doesn't seem needed or useful
 	// NOTE: IC-705 doesn't support 33cm or higher, but it's twin the IC-905 does so we may think about that going forward
 }
 
@@ -124,7 +124,7 @@ type civControlStruct struct {
 		mutex       sync.Mutex
 		pendingCmds []*civCmd
 
-		getFreq           civCmd // NOTE: why was this removed in this (devel) version? is because it doesn't recognize which vfo it's for?
+		getFreq           civCmd // NOTE: why was this removed in v1.3-devel version?
 		getPwr            civCmd
 		getS              civCmd // get S-meter reading
 		getOVF            civCmd
@@ -323,7 +323,7 @@ func (s *civControlStruct) decode(d []byte) bool {
 		debugPacket("decoding", d)
 	}
 
-	// minimum valid inccoming packet is six bytes long: 2 start-of-packet, to, from, cmd, end-of-packet
+	// minimum valid incoming packet is six bytes long: 2 start-of-packet, to, from, cmd, end-of-packet
 	// sanity check that incoming packets is of minimal size, and properly wrapped valid header & end bytes
 	if len(d) < 6 || d[0] != 0xfe || d[1] != 0xfe || d[len(d)-1] != 0xfd {
 		return true
@@ -334,7 +334,9 @@ func (s *civControlStruct) decode(d []byte) bool {
 	//
 	// NOTE: looks like I'm seeing all of the commands I'm sending to the radio...
 	//       is this due to  CI-V USB Echo Back being enabled?  OR are we seeing out own packets?
-	//  hmmmm, but if I drop these then I'm not seeing changes on the status line... does seem the are nmaking it to the radio
+	//       if we drop these then any changes sent are not seen on the status line... does seem they are making it to the radio though
+	//          this suggests the code is just decoding what it *asked* the transiever to do, and not actually listening to hear
+	//          what the transciever says it actually did.
 	/*
 		if intendedFor, expectedFrom := d[2], d[3]; intendedFor != controllerAddress || expectedFrom != civAddress {
 			return true
@@ -394,7 +396,7 @@ func (s *civControlStruct) decodeFreq(d []byte) bool {
 	s.state.freq = s.decodeFreqData(d)
 	statusLog.reportFrequency(s.state.freq)
 
-	s.state.bandIdx = len(civBands) - 1 // Set the band idx to GENE by default.
+	s.state.bandIdx = len(civBands) - 1 // set the band idx to the last in range for a default (this was the general range) untile band is determined
 	for i := range civBands {
 		if s.state.freq >= civBands[i].freqFrom && s.state.freq <= civBands[i].freqTo {
 			s.state.bandIdx = i
@@ -597,24 +599,7 @@ func (s *civControlStruct) decodePowerRFGainSQLNRPwr(d []byte) bool {
 	//   subcmd, data msb, data lsb  (where data is encoded as BCD)
 	// code would be easier to read if we check size and do value extraction first
 	//   then take actions on appropriate entities in each case
-	//
 
-	/*
-		  case 0x02: // RF Gain subcmd
-		    if len(d) < 3 {  // has at least three bytes of data
-				return !s.state.getRFGain.pending && !s.state.setRFGain.pending
-			}
-			s.state.rfGainLevel = returnedLevel
-			statusLog.reportRFGain(s.state.rfGainLevel)
-			if s.state.getRFGain.pending {
-				s.removePendingCmd(&s.state.getRFGain)
-				return false
-			}
-			if s.state.setRFGain.pending {
-				s.removePendingCmd(&s.state.setRFGain)
-				return false
-			}
-	*/
 	subcmd := d[0]
 	data := d[1:]
 	switch subcmd {
@@ -1013,11 +998,8 @@ func (s *civControlStruct) sendCmd(cmd *civCmd) error {
 	cmd.sentAt = time.Now()
 
 	// add this cmd request to the list of pending commands we'll need to process returned data for
-	//   each cmd request is a pointer to a civCmd object, so this is check of a specfic request rather than name of a command sent
+	//   each cmd request is a pointer to a civCmd object, so this is check of a specfic request rather than just name of a command sent
 	if s.getPendingCmdIndex(cmd) < 0 {
-		// NOTE: we could simplify all the s.initCmd calls to just the cmd, subcmd, data components if we wrap the icom command  packet here
-		// data :=  cmd.cmd
-		// cmd.cmd = []byte{0xfe, 0xfe, civAddress, controllerAddress, data..., 0xfd}
 		s.state.pendingCmds = append(s.state.pendingCmds, cmd)
 		select {
 		case s.newPendingCmdAdded <- true:
@@ -1337,7 +1319,7 @@ func (s *civControlStruct) setTune(enable bool) error {
 		})
 	} else {
 		// BUG? this was value in codebase, but shouldn't it be to OFF  (and we only see ON when asking about it's state?)
-		// actual behavior appears to be the same for both though.
+		// actual behavior appears to be the same even it is set to OFF here
 		b = ON
 	}
 	s.initCmd(&s.state.setTune, "setTune", prepPacket("setTune", []byte{b}))
@@ -1423,7 +1405,7 @@ func (s *civControlStruct) toggleNR() error {
 
 func (s *civControlStruct) setTuningStep(b byte) error {
 	// NOTE: only values 00 - 13 are valid  (enforced in the (inc|dec)TuningStep functions)
-	//       we may want to enforce here if adding a direct selection to the codebase
+	//       we may want to enforce here if adding a direct selection method to the codebase
 	s.initCmd(&s.state.setTuningStep, "setTuningStep", prepPacket("setTuningStep", []byte{b}))
 	return s.sendCmd(&s.state.setTuningStep)
 }
