@@ -1,4 +1,4 @@
-module github.com/nonoo/kappanhang
+module github.com/shadow974/kappanhang
 
 go 1.14
 
